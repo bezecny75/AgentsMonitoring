@@ -344,6 +344,14 @@ def new() -> int:
     config.save(cfg)
     print(f"\n✓ Created '{name}' ({chosen['label']}), launched in tmux, and added to monitoring.")
     service.install()
+    # Kick off a first turn so the agent registers its session id + model right away — a brand-new
+    # session shows neither until its first message. Give the TUI a moment to come up, then send a
+    # short greeting. Best-effort: if a one-time onboarding screen shows instead, the first real
+    # message you send registers it anyway.
+    import time
+    time.sleep(4)
+    subprocess.run(["tmux", "send-keys", "-t", name, "Hello! Briefly introduce yourself.", "Enter"],
+                   capture_output=True)
     import shlex
     print(f"\nAttach to interact (or finish login):  tmux attach -t {shlex.quote(name)}")
     print("It now shows on the dashboard and is kept alive automatically.")

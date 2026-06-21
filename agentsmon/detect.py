@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import time
 import urllib.request
@@ -273,28 +274,58 @@ def _claude_info_for_cwd(cwd: str) -> tuple[str | None, str | None]:
     return None, None
 
 
-def _antigravity_model() -> str | None:
-    """Antigravity (agy) records its selected model in ~/.gemini/antigravity-cli/settings.json."""
-    try:
-        d = json.loads((Path.home() / ".gemini" / "antigravity-cli" / "settings.json").read_text("utf-8"))
-        return d.get("model") or None
-    except (OSError, ValueError):
+def _antigravity_base() -> Path:
+    return Path.home() / ".gemini" / "antigravity-cli"
+
+
+def _pretty_gemini_model(raw: str) -> str:
+    """``gemini-3-flash-agent`` → ``Gemini 3 Flash`` (drop the internal -agent/-a suffix)."""
+    s = re.sub(r"-(agent|a)$", "", raw or "")
+    return " ".join(p if any(c.isdigit() for c in p) else p.capitalize() for p in s.split("-"))
+
+
+def _antigravity_model_from_db(sid: str | None) -> str | None:
+    """The model a specific Antigravity conversation ran, from its SQLite store (gen_metadata).
+    Works even before the global model is set in settings.json."""
+    if not sid:
         return None
+    db = _antigravity_base() / "conversations" / f"{sid}.db"
+    if not db.exists():
+        return None
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        ids: list[str] = []
+        for (v,) in con.execute("SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT 5"):
+            s = v.decode("utf-8", "ignore") if isinstance(v, (bytes, bytearray)) else str(v)
+            ids += re.findall(r"gemini-[a-z0-9.\-]+|claude-[a-z]+-[0-9-]+", s)
+        con.close()
+    except sqlite3.Error:
+        return None
+    if not ids:
+        return None
+    raw = ids[0]
+    return _pretty_claude_model(raw) if raw.startswith("claude") else _pretty_gemini_model(raw)
 
 
 def _antigravity_info_for_cwd(cwd: str) -> tuple[str | None, str | None]:
     """(conversation id, model) for an Antigravity session. A fresh `agy` has no ``--conversation``
-    id on argv; it maps the current workspace → conversation in cache/last_conversations.json."""
+    id on argv; it maps the current workspace → conversation in cache/last_conversations.json, and
+    records the selected model in settings.json (global) or the conversation's .db (per-session)."""
     sid = None
     try:
-        cache = Path.home() / ".gemini" / "antigravity-cli" / "cache" / "last_conversations.json"
-        mapping = json.loads(cache.read_text("utf-8"))
+        mapping = json.loads((_antigravity_base() / "cache" / "last_conversations.json").read_text("utf-8"))
         if cwd:
             target = os.path.realpath(cwd)
             sid = next((v for k, v in mapping.items() if os.path.realpath(k) == target), None)
     except (OSError, ValueError):
         pass
-    return sid, _antigravity_model()
+    model = None
+    try:
+        d = json.loads((_antigravity_base() / "settings.json").read_text("utf-8"))
+        model = d.get("model") or None
+    except (OSError, ValueError):
+        pass
+    return sid, model or _antigravity_model_from_db(sid)
 
 
 def _classify(cmds: list[str], extra_matches: list[tuple]) -> tuple[str, str, str | None]:

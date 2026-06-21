@@ -54,6 +54,16 @@ def sla(service: str, window_seconds: int) -> tuple[float | None, int]:
     return (100.0 * up / total if total else None), total
 
 
+def avg_latency(service: str, window_seconds: int) -> float | None:
+    """Average health-check latency (seconds) over the window — the card's 'avg latency' metric
+    (distinct from the agent row's current latency)."""
+    since = int(time.time()) - window_seconds
+    with _conn() as c:
+        r = c.execute("SELECT AVG(latency) a FROM probes WHERE service=? AND ts>=? "
+                      "AND latency IS NOT NULL", (service, since)).fetchone()
+    return r["a"] if r and r["a"] is not None else None
+
+
 def uptime_seconds(service: str, min_outage: int = 3) -> int | None:
     """Seconds in the current up-streak. A *real outage* is ``min_outage`` or more consecutive
     down samples; isolated transient blips (e.g. one slow health check while the process stays up)

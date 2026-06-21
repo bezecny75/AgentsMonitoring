@@ -158,9 +158,9 @@ function renderService(root, s){
     q(root,".m-x").textContent=(s.metric_value!=null?s.metric_value:"–")+(s.metric_value!=null?" running":"");
     q(root,".m-x-sub").textContent="live in tmux";
   }else{
-    q(root,".m-x-label").textContent="Latency";
-    q(root,".m-x").textContent=fmtLat(s.latency_ms);
-    q(root,".m-x-sub").textContent=s.metric_sub||"health check";
+    q(root,".m-x-label").textContent="Avg latency";
+    q(root,".m-x").textContent=fmtLat(s.avg_latency_ms);
+    q(root,".m-x-sub").textContent="over "+s.sla_window_days+" days";
   }
   renderTimeline(root, s.timeline, s.timeline_days);
 }
@@ -249,6 +249,7 @@ def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
             "detail": cur["detail"] if cur else "no data yet",
             "last_ts": cur["ts"] if cur else None,
             "latency_ms": round(lat * 1000) if lat is not None else None,
+            "avg_latency_ms": (lambda a: round(a * 1000) if a is not None else None)(db.avg_latency(name, win_days * 86400)),
             "metric": metric, "metric_value": running_agents if metric == "agents" else None,
             "metric_sub": s.get("latency_label", "health check"),
             "uptime_seconds": db.uptime_seconds(name, min_outage),

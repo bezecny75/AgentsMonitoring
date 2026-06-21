@@ -43,6 +43,14 @@ def _yes(prompt: str, default_yes: bool = True) -> bool:
     return ans in ("y", "yes")
 
 
+def _ask_secret(prompt: str) -> str:
+    import getpass
+    try:
+        return getpass.getpass(f"{prompt}: ").strip()
+    except (EOFError, Exception):
+        return _ask(prompt)
+
+
 def run() -> int:
     print("=== Agents Monitoring setup ===\n")
     if not shutil.which("tmux"):
@@ -85,10 +93,23 @@ def run() -> int:
     port = _ask("\nDashboard port", "8765")
     host = _ask("Dashboard host (127.0.0.1 = this machine only)", "127.0.0.1")
 
+    # HTTP auth — recommended whenever the dashboard isn't bound to localhost.
     cfg = config.load()
+    cfg["dashboard"].update({"host": host, "port": int(port) if port.isdigit() else 8765})
+    remote = host not in ("127.0.0.1", "localhost", "::1")
+    if _yes("Protect the dashboard with a login (HTTP auth)?", default_yes=remote):
+        from . import dashboard
+        user = _ask("    username", "admin")
+        pw = _ask_secret("    password (hidden)")
+        while not pw:
+            pw = _ask_secret("    password can't be empty (hidden)")
+        cfg["dashboard"]["auth"] = {"user": user, "pwhash": dashboard.password_hash(pw)}
+        print("    ✓ HTTP auth enabled (password stored only as a hash).")
+    else:
+        cfg["dashboard"].pop("auth", None)
+
     cfg["agents"] = agents
     cfg["daemons"] = daemons
-    cfg["dashboard"].update({"host": host, "port": int(port) if port.isdigit() else 8765})
     path = config.save(cfg)
     print(f"\n✓ Saved config to {path}")
     print(f"  Supervising {len(agents)} agent(s), watching {len(daemons)} daemon(s).")

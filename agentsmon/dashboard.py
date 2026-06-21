@@ -6,11 +6,31 @@ host to a VPN/LAN address in config if you want to reach it from another machine
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import config, detect
+
+
+def password_hash(password: str) -> str:
+    """Hash a dashboard password for storage (we never keep the plaintext in config)."""
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def _auth_ok(header: str | None, user: str, pwhash: str) -> bool:
+    if not header or not header.startswith("Basic "):
+        return False
+    try:
+        raw = base64.b64decode(header[6:]).decode("utf-8")
+    except Exception:
+        return False
+    u, _, pw = raw.partition(":")
+    return (hmac.compare_digest(u, user)
+            and hmac.compare_digest(password_hash(pw), pwhash))
 
 PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -70,12 +90,22 @@ def serve(host: str, port: int) -> None:
     cfg = config.load()
     poll = cfg.get("dashboard", {}).get("poll_seconds", 15)
     page = PAGE.replace("POLL", str(poll)).encode()
+    auth = cfg.get("dashboard", {}).get("auth") or {}
+    auth_user, auth_hash = auth.get("user"), auth.get("pwhash")
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
 
+        def _denied(self):
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="Agents Monitoring"')
+            self.end_headers()
+
         def do_GET(self):
+            if auth_user and auth_hash and not _auth_ok(self.headers.get("Authorization"),
+                                                        auth_user, auth_hash):
+                return self._denied()
             if self.path.startswith("/api/status"):
                 body = _payload()
                 self.send_response(200)

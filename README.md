@@ -99,10 +99,18 @@ shown as **idle**. Background **daemons** aren't in tmux, so they're matched by 
     { "name": "OpenClaw", "pattern": "openclaw", "health_url": "http://127.0.0.1:18789/health" },
     { "name": "Hermes",   "pattern": "hermes", "restart": "hermes gateway restart" }
   ],
-  "dashboard": { "host": "127.0.0.1", "port": 8765, "poll_seconds": 15 },
+  "dashboard": {
+    "host": "127.0.0.1", "port": 8765, "poll_seconds": 15,
+    "auth": { "user": "admin", "pwhash": "<sha256 of the password>" }
+  },
   "keepalive": { "enabled": true, "interval_seconds": 60 }
 }
 ```
+
+**Dashboard login (HTTP auth).** The setup wizard asks whether to protect the dashboard with a
+username + password (defaulting to *yes* whenever you bind it to anything other than localhost).
+If enabled, the dashboard requires HTTP Basic auth; the password is stored only as a SHA-256
+hash (`dashboard.auth.pwhash`), never in plaintext. Remove the `auth` block to turn it off.
 
 - **agents[].match** — a substring of the agent's process command line that means "alive".
 - **agents[].restart** — shell command run in the session to relaunch the agent (empty = just
@@ -115,8 +123,9 @@ shown as **idle**. Background **daemons** aren't in tmux, so they're matched by 
 
 ## Security note
 
-The dashboard is **read-only** and has **no authentication** — bind it to `127.0.0.1` (default)
-or a trusted VPN address, never the public internet. Restart commands run as your user.
+The dashboard is **read-only**. Bind it to `127.0.0.1` (default) or a trusted VPN address, never
+the public internet. If you expose it beyond localhost, enable the **HTTP login** in setup
+(stored as a SHA-256 hash). Restart commands run as your user.
 
 ---
 

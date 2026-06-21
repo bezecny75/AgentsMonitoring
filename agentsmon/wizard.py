@@ -190,10 +190,19 @@ def migrate_config(cfg: dict) -> bool:
         if not is_daemon_card:
             kept.append(s)
     new_services = [dict(SYSTEM_SERVICE)] + kept
+    changed = False
     if new_services != svcs:
         cfg["services"] = new_services
-        return True
-    return False
+        changed = True
+    # Backfill the Telegram @username for known daemons (OpenClaw/Hermes) that don't have one yet,
+    # so their t.me icon appears on existing installs without a re-setup.
+    for pin in cfg.get("pinned_daemons", []):
+        if pin.get("name") and not pin.get("telegram"):
+            bot = detect.daemon_telegram_bot(pin["name"])
+            if bot:
+                pin["telegram"] = bot
+                changed = True
+    return changed
 
 
 def _daemon_entries(d: dict) -> tuple:
@@ -206,9 +215,9 @@ def _daemon_entries(d: dict) -> tuple:
         pinned["health_url"] = d["health_url"]
     if d.get("name_color"):
         pinned["name_color"] = d["name_color"]
-    # OpenClaw has its own native Telegram bot — auto-fill its @username so the dashboard shows a
-    # t.me link (other daemons can set a `telegram` field in config explicitly).
-    tg = d.get("telegram") or (detect._openclaw_telegram_bot() if d.get("name") == "OpenClaw" else "")
+    # Daemons with their own native Telegram bot (OpenClaw, Hermes) — auto-fill the @username so
+    # the dashboard shows a t.me link (any daemon can also set a `telegram` field explicitly).
+    tg = d.get("telegram") or detect.daemon_telegram_bot(d.get("name", ""))
     if tg:
         pinned["telegram"] = tg
     model = detect.daemon_model(d["name"])

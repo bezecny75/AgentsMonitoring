@@ -387,12 +387,37 @@ def _openclaw_telegram_bot() -> str:
         accounts = (((d.get("channels") or {}).get("telegram") or {}).get("accounts") or {})
         tok = next((a["botToken"] for a in accounts.values()
                     if isinstance(a, dict) and a.get("botToken")), "")
-        if not tok:
-            return ""
-        with urllib.request.urlopen(f"https://api.telegram.org/bot{tok}/getMe", timeout=6) as r:
+        return _getme_username(tok) if tok else ""
+    except Exception:
+        return ""
+
+
+def _getme_username(token: str) -> str:
+    try:
+        with urllib.request.urlopen(f"https://api.telegram.org/bot{token}/getMe", timeout=4) as r:
             return json.loads(r.read()).get("result", {}).get("username", "") or ""
     except Exception:
         return ""
+
+
+def _hermes_telegram_bot() -> str:
+    """Hermes' own Telegram bot @username, resolved from its ~/.hermes/.env token. Best-effort."""
+    try:
+        env = (Path.home() / ".hermes" / ".env").read_text("utf-8")
+    except OSError:
+        return ""
+    m = re.findall(r'(?im)^[^#\n]*(?:TELEGRAM|BOT_?TOKEN)[^\n]*?=\s*["\']?(\d{6,}:[A-Za-z0-9_-]{30,})', env)
+    return _getme_username(m[0]) if m else ""
+
+
+def daemon_telegram_bot(name: str) -> str:
+    """A known daemon's OWN Telegram bot @username (not via Agent2Telegram). '' if not resolvable.
+    Called at setup / config migration, never per render."""
+    if name == "OpenClaw":
+        return _openclaw_telegram_bot()
+    if name == "Hermes":
+        return _hermes_telegram_bot()
+    return ""
 
 
 def telegram_links() -> dict[str, str]:

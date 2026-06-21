@@ -167,8 +167,9 @@ function renderAgents(root, agents){
   tb.innerHTML="";
   agents.forEach(a=>{
     const tcls=VENDOR[a.vendor]||"bg-slate-100 text-slate-600";
-    const tip=a.resume_cmd?`↻ ${a.resume_cmd}`:(a.session_id||"no resume");
-    const sid=a.session_id?`<span class="font-mono text-xs text-slate-600 whitespace-nowrap cursor-help" title="${esc(tip)}">${esc(a.session_id)}</span>`
+    const copy=a.resume_cmd||a.session_id||"";
+    const tip=a.resume_cmd?`↻ ${a.resume_cmd} — click to copy`:(a.session_id||"no resume");
+    const sid=a.session_id?`<span class="sid font-mono text-xs text-slate-600 whitespace-nowrap cursor-pointer hover:text-sky-600" title="${esc(tip)}" data-copy="${esc(copy)}">${esc(a.session_id)}</span>`
       :`<span class="text-xs text-slate-300 cursor-help" title="${esc(tip)}">— none</span>`;
     const ok=a.alive; const stDot=ok?"bg-emerald-500":"bg-slate-300"; const stTxt=ok?"Running":"Idle";
     const stCls=ok?"text-slate-600":"text-slate-400";
@@ -197,6 +198,22 @@ async function refresh(){
     document.getElementById("footer").textContent="updated "+new Date().toLocaleTimeString()+" · auto-refresh";
   }catch(e){document.getElementById("footer").textContent="connection lost…";}
 }
+function copyText(text){
+  if(navigator.clipboard && window.isSecureContext){ return navigator.clipboard.writeText(text); }
+  // Fallback for plain http (e.g. over a VPN IP): clipboard API needs a secure context.
+  const ta=document.createElement("textarea"); ta.value=text; ta.style.position="fixed"; ta.style.opacity="0";
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try{ document.execCommand("copy"); }catch(e){} document.body.removeChild(ta);
+  return Promise.resolve();
+}
+document.addEventListener("click", e=>{
+  const el=e.target.closest("[data-copy]"); if(!el) return;
+  copyText(el.dataset.copy).then(()=>{
+    const old=el.textContent; el.textContent="✓ copied";
+    el.classList.add("text-emerald-600");
+    setTimeout(()=>{ el.textContent=old; el.classList.remove("text-emerald-600"); }, 1000);
+  });
+});
 refresh(); setInterval(refresh, POLL*1000);
 </script></body></html>"""
 

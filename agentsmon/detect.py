@@ -9,11 +9,15 @@ Pure standard library: `tmux` + `ps` via subprocess, no third-party deps.
 """
 from __future__ import annotations
 
+import glob
+import json
+import os
 import re
 import shutil
 import subprocess
 import time
 import urllib.request
+from pathlib import Path
 
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
@@ -147,6 +151,34 @@ def _subtree(roots, children) -> set[int]:
     return seen
 
 
+def _session_cwd(name: str) -> str | None:
+    r = _run([_tmux_bin(), "display-message", "-p", "-t", name, "#{pane_current_path}"])
+    return r.stdout.strip() if (r and r.returncode == 0 and r.stdout.strip()) else None
+
+
+def _codex_session_for_cwd(cwd: str) -> str | None:
+    """A fresh interactive `codex` has no session id on its command line — it's in the newest
+    rollout file under ~/.codex/sessions whose recorded cwd matches. Return that session's UUID."""
+    base = Path.home() / ".codex" / "sessions"
+    if not cwd or not base.is_dir():
+        return None
+    target = os.path.realpath(cwd)
+    files = glob.glob(str(base / "**" / "rollout-*.jsonl"), recursive=True)
+    files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+    for f in files[:300]:
+        try:
+            with open(f, encoding="utf-8") as fh:
+                d = json.loads(fh.readline())
+        except (OSError, ValueError):
+            continue
+        c = d.get("cwd") or (d.get("payload") or {}).get("cwd")
+        if c and os.path.realpath(c) == target:
+            m = UUID_RE.search(os.path.basename(f))
+            if m:
+                return m.group(0)
+    return None
+
+
 def _classify(cmds: list[str], extra_matches: list[tuple]) -> tuple[str, str, str | None]:
     """Given the command lines in a session's process tree, return (kind, label, session_id).
     User-supplied (kind,label,pattern) tuples are tried first, then the built-ins."""
@@ -175,6 +207,12 @@ def discover_agents(extra_matches: list[tuple] | None = None, now: float | None 
         # Prefer non-shell commands when classifying.
         ranked = sorted(cmds, key=lambda c: c.split()[0].rsplit("/", 1)[-1] in SHELLS)
         kind, label, sid = _classify(ranked, extra_matches)
+        # A fresh interactive agent has no id on its command line — resolve it from its session
+        # storage by matching the tmux pane's working directory (currently Codex).
+        if sid is None and kind == "codex":
+            cwd = _session_cwd(s["name"])
+            if cwd:
+                sid = _codex_session_for_cwd(cwd)
         age = int(now - s["created"]) if s["created"] else None
         resume = RESUME_TEMPLATES.get(kind, "").format(id=sid) if (sid and kind in RESUME_TEMPLATES) else None
         agents.append({

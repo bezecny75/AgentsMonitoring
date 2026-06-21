@@ -24,9 +24,19 @@ def run() -> int:
                           capture_output=True).returncode != 0:
             subprocess.run([sys.executable, "-m", "pip", "install", "--user",
                             "--break-system-packages", "--upgrade", str(src)], capture_output=True)
+    # Migrate the saved config to the current schema (e.g. fold old per-daemon availability cards
+    # into the synthetic Multi-Agent System card) so existing installs upgrade cleanly.
+    from . import config, wizard
+    try:
+        cfg = config.load()
+        if wizard.migrate_config(cfg):
+            config.save(cfg)
+            print("✓ Config migrated to the current layout.")
+    except Exception as e:
+        print(f"(config migration skipped: {e})")
+
     # Reload the dashboard on the new code — restart it IMMEDIATELY (don't leave a gap until the
     # next cron tick). Kill it, then kick the launcher so it comes straight back.
-    from . import config
     if shutil.which("pkill"):
         subprocess.run(["pkill", "-f", "agentsmon dashboard"], capture_output=True)
     launcher = config.state_dir() / "agentsmon-launch.sh"

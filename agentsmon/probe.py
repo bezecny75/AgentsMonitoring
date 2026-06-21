@@ -49,10 +49,61 @@ def _http(url: str, timeout: float = 4) -> tuple[bool, float | None]:
                 pass
 
 
+def _system_health(cfg: dict) -> tuple[bool, float | None, str]:
+    """Availability of the **whole multi-agent system**, not any single component.
+
+    Strict rule (chosen deliberately): the system is *up* only when **every** monitored
+    component is up — all configured agents alive, all daemons running, all pinned daemons and
+    real services healthy. Any one down = a system outage. Latency = the average current latency
+    across all health-checked components (a single system-wide number)."""
+    from . import config as _config, detect
+    down: list[str] = []
+    lats: dict[str, float] = {}
+
+    alive = {a["name"] for a in detect.discover_agents(_config.agent_matches(cfg)) if a.get("alive")}
+    for a in cfg.get("agents", []):
+        if a.get("enabled", True) and a.get("name") and a["name"] not in alive:
+            down.append(a["name"])
+
+    for d in cfg.get("daemons", []):
+        if d.get("pattern") and not _proc_up(d["pattern"]):
+            down.append(d.get("name") or d["pattern"])
+
+    # Pinned daemons + real (non-system) services: process must run and any health endpoint pass.
+    checks = list(cfg.get("pinned_daemons", []))
+    checks += [s for s in cfg.get("services", []) if s.get("kind") != "system"]
+    for c in checks:
+        name = c.get("name") or c.get("process") or c.get("pattern") or "?"
+        pat = c.get("process") or c.get("pattern") or ""
+        if pat and not _proc_up(pat):
+            down.append(name)
+            continue
+        url = c.get("health_url")
+        if url:
+            ok, lat = _http(url)
+            if lat is not None:
+                lats.setdefault(url, lat)
+            if not ok:
+                down.append(name)
+
+    uniq: list[str] = []
+    for n in down:
+        if n not in uniq:
+            uniq.append(n)
+    up = not uniq
+    avg = round(sum(lats.values()) / len(lats), 3) if lats else None
+    detail = "all components up" if up else "down: " + ", ".join(uniq[:5])
+    return up, avg, detail
+
+
 def probe_once(cfg: dict) -> None:
     for s in cfg.get("services", []):
         name = s.get("name")
         if not name:
+            continue
+        if s.get("kind") == "system":
+            ok, lat, detail = _system_health(cfg)
+            db.record(name, ok, lat, detail)
             continue
         proc = _proc_up(s.get("process", ""))
         ok, lat, detail = proc, None, f"proc={'up' if proc else 'down'}"

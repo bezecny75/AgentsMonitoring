@@ -52,7 +52,6 @@ def primary_ip() -> str:
         return "127.0.0.1"
 COMMON_DAEMONS = [
     {"name": "OpenClaw", "pattern": "openclaw", "binary": "openclaw", "name_color": "red",
-     "service_name": "Multi-Agent System Availability",
      "health_url": "http://127.0.0.1:18789/health",
      "restart": "nohup openclaw gateway > ~/openclaw.log 2>&1 &"},
     {"name": "Hermes", "pattern": "hermes.* gateway", "binary": "hermes", "name_color": "gold",
@@ -148,16 +147,46 @@ def _agent_entry(a: dict) -> dict:
             "enabled": True}
 
 
+#: The system-wide availability card. It's synthetic — not tied to any single component — and is
+#: "up" only when every monitored agent + daemon is up (computed in probe._system_health). Its
+#: latency metric is the average across all health-checked components.
+SYSTEM_SERVICE = {"name": "Multi-Agent System Availability", "kind": "system",
+                  "metric": "system_latency"}
+
+
+def migrate_config(cfg: dict) -> bool:
+    """Bring an older config up to the current schema. Currently: replace the per-daemon
+    availability cards (OpenClaw/Hermes, or an OpenClaw-health card) with the single synthetic
+    *Multi-Agent System Availability* card, while keeping genuinely separate cards (e.g. the
+    Telegram Bridge). Idempotent. Returns True if anything changed."""
+    svcs = cfg.get("services", [])
+    pinned_pats = {d.get("process") for d in cfg.get("pinned_daemons", []) if d.get("process")}
+    pinned_names = {d.get("name") for d in cfg.get("pinned_daemons", []) if d.get("name")}
+    kept = []
+    for s in svcs:
+        if s.get("kind") == "system":
+            continue                                   # re-inserted canonically below
+        url = s.get("health_url") or ""
+        is_daemon_card = (s.get("process") in pinned_pats or s.get("name") in pinned_names
+                          or url.endswith(":18789/health")
+                          or s.get("name") == "Multi-Agent System Availability")
+        if not is_daemon_card:
+            kept.append(s)
+    new_services = [dict(SYSTEM_SERVICE)] + kept
+    if new_services != svcs:
+        cfg["services"] = new_services
+        return True
+    return False
+
+
 def _daemon_entries(d: dict) -> tuple:
-    """(keepalive daemon, pinned Persistent-Agents row, availability service) for a daemon."""
+    """(keepalive daemon, pinned Persistent-Agents row) for a daemon. Daemons no longer get their
+    own availability card — their health folds into the synthetic Multi-Agent System card; they
+    just appear as a highlighted row at the top of Persistent Agents (with live model + colour)."""
     daemon = dict(d)
     pinned = {"name": d["name"], "process": d["pattern"]}
-    # The availability card can have its own title (e.g. OpenClaw → "Multi-Agent System
-    # Availability") while the agents-table row keeps the short daemon name.
-    service = {"name": d.get("service_name", d["name"]), "process": d["pattern"]}
     if d.get("health_url"):
         pinned["health_url"] = d["health_url"]
-        service["health_url"] = d["health_url"]
     if d.get("name_color"):
         pinned["name_color"] = d["name_color"]
     model = detect.daemon_model(d["name"])
@@ -166,7 +195,7 @@ def _daemon_entries(d: dict) -> tuple:
         v = detect.vendor_for_model(model)
         if v:
             pinned["vendor"] = v
-    return daemon, pinned, service
+    return daemon, pinned
 
 
 def _scan_candidates(known: set) -> list:
@@ -189,6 +218,11 @@ def add() -> int:
         print("No config yet — run 'agentsmon setup' first.")
         return 1
     cfg = config.load()
+    # Ensure the synthetic system availability card exists (configs from before it was introduced
+    # won't have it). It carries the health of the whole system, not any single daemon.
+    svcs = cfg.setdefault("services", [])
+    if not any(s.get("kind") == "system" for s in svcs):
+        svcs.insert(0, dict(SYSTEM_SERVICE))
     known = set()
     for key in ("agents", "daemons", "services", "pinned_daemons"):
         known |= {x.get("name") for x in cfg.get(key, []) if x.get("name")}
@@ -210,10 +244,9 @@ def add() -> int:
         if c["kind"] == "agent":
             cfg.setdefault("agents", []).append(_agent_entry(c["obj"]))
         elif c["kind"] == "daemon":
-            dmn, pin, svc = _daemon_entries(c["obj"])
+            dmn, pin = _daemon_entries(c["obj"])
             cfg.setdefault("daemons", []).append(dmn)
             cfg.setdefault("pinned_daemons", []).append(pin)
-            cfg.setdefault("services", []).append(svc)
         elif c["kind"] == "bridge":
             cfg.setdefault("services", []).append(c["obj"])
             r = _bridge_restart_cmd()
@@ -284,15 +317,17 @@ def run() -> int:
         cfg["dashboard"].pop("auth", None)
 
     # Build the full dashboard by default (the layout we run ourselves): each selected daemon
-    # becomes a keepalive target, a row at the top of Persistent Agents, AND its own availability
-    # card. tmux agents already carry their maker colour automatically.
+    # becomes a keepalive target and a highlighted row at the top of Persistent Agents (with live
+    # model + colour). tmux agents already carry their maker colour automatically. The first
+    # availability card is the synthetic *Multi-Agent System Availability* — health of the whole
+    # system, independent of any single daemon.
     cfg["agents"] = agents
-    cfg["daemons"], cfg["pinned_daemons"], cfg["services"] = [], [], []
+    cfg["daemons"], cfg["pinned_daemons"] = [], []
+    cfg["services"] = [dict(SYSTEM_SERVICE)]
     for d in daemons:
-        dmn, pin, svc = _daemon_entries(d)
+        dmn, pin = _daemon_entries(d)
         cfg["daemons"].append(dmn)
         cfg["pinned_daemons"].append(pin)
-        cfg["services"].append(svc)
     # Auto-add a Telegram Bridge availability card if an Agent2Telegram bridge is running,
     # AND keep it alive (restart from its current command line, so it returns after a reboot).
     tb = _telegram_bridge_service()

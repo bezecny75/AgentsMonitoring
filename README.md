@@ -119,8 +119,12 @@ hash (`dashboard.auth.pwhash`), never in plaintext. Remove the `auth` block to t
   daemon): each has a `name` (its dashboard card title), a `process` pattern and/or a
   `health_url`. The dashboard probes them on `probe.interval_seconds`, stores samples in a local
   SQLite, and renders a card with current status, **current uptime**, **SLA %** over
-  `probe.sla_window_days`, and a timeline. (e.g. cards "Multi-agent system availability" and
-  "Telegram Bridge Status".)
+  `probe.sla_window_days`, and a timeline. (e.g. the "Telegram Bridge Status" card.)
+- **the system card** — a special synthetic service `{ "name": "Multi-Agent System
+  Availability", "kind": "system", "metric": "system_latency" }` (added by setup). It isn't tied
+  to one component: it is **up only when every monitored agent + daemon is up**, so its timeline
+  is the availability of your whole system. Its latency is the average across all health-checked
+  components.
 - **pinned_daemons[]** — non-tmux processes to show at the **top** of the Persistent Agents
   table (e.g. a gateway, a worker): each has `name`, `process` (pgrep), `tag` (model/label shown),
   `vendor` (tag colour: anthropic/openai/google) and optional `name_color` (highlight the name:

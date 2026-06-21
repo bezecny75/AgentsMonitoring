@@ -40,7 +40,7 @@ def _write_launcher() -> Path:
     path.write_text(f"""#!/bin/sh
 # Agents Monitoring launcher — started by cron (@reboot + every minute). Idempotent: starts the
 # dashboard only if it isn't running, then runs one keepalive pass (a no-op if disabled / no agents).
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 export PYTHONPATH="{_pythonpath()}"
 PY="{_python()}"
 mkdir -p "{state}"

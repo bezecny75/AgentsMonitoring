@@ -64,6 +64,18 @@ def _running(pattern: str) -> bool:
                                             capture_output=True).returncode == 0
 
 
+def _bridge_restart_cmd() -> str | None:
+    """Capture the running Agent2Telegram bridge's exact command line → a nohup restart command,
+    so keepalive can bring it back (e.g. after a reboot)."""
+    out = subprocess.run(["pgrep", "-af", "agent2telegram run"], capture_output=True, text=True)
+    for line in out.stdout.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2 and "agent2telegram run" in parts[1]:
+            log = "$HOME/.local/state/agentsmon/bridge.log"
+            return f"nohup {parts[1]} >> {log} 2>&1 &"
+    return None
+
+
 def _telegram_bridge_service() -> dict | None:
     """If an Agent2Telegram bridge is running, build a 'Telegram Bridge Status' availability card.
     Latency = a round-trip to the Telegram API (getMe) using the bridge's bot token, if we can
@@ -213,10 +225,15 @@ def run() -> int:
         {"name": d["name"], "process": d["pattern"],
          **({"health_url": d["health_url"]} if d.get("health_url") else {})}
         for d in daemons]
-    # Auto-add a Telegram Bridge availability card if an Agent2Telegram bridge is running.
+    # Auto-add a Telegram Bridge availability card if an Agent2Telegram bridge is running,
+    # AND keep it alive (restart from its current command line, so it returns after a reboot).
     tb = _telegram_bridge_service()
     if tb:
         cfg["services"].append(tb)
+        restart = _bridge_restart_cmd()
+        if restart:
+            cfg["daemons"].append({"name": "Telegram Bridge", "pattern": "agent2telegram run",
+                                   "restart": restart})
     path = config.save(cfg)
     print(f"\n✓ Saved config to {path}")
     print(f"  Supervising {len(agents)} agent(s), watching {len(daemons)} daemon(s).")

@@ -34,9 +34,19 @@ if "$PY" -m pip --version >/dev/null 2>&1 || "$PY" -m ensurepip --upgrade >/dev/
     INSTALLED=1
   fi
 fi
-if [ "$INSTALLED" = 1 ]; then RUN=("$PY" -m agentsmon); HOW="$PY -m agentsmon"
-else say "pip unavailable — running from the clone (no install needed)."; RUN=(env "PYTHONPATH=$SRC" "$PY" -m agentsmon); HOW="PYTHONPATH=$SRC $PY -m agentsmon"; fi
+if [ "$INSTALLED" = 1 ]; then
+  RUN=("$PY" -m agentsmon); HOW="agentsmon"
+else
+  # No pip: drop a tiny launcher so `agentsmon` is still a real command (not a long PYTHONPATH line).
+  say "pip unavailable — installing a launcher in ~/.local/bin (dependency-free)."
+  mkdir -p "$HOME/.local/bin"
+  printf '#!/bin/sh\nexec env PYTHONPATH="%s" "%s" -m agentsmon "$@"\n' "$SRC" "$PY" > "$HOME/.local/bin/agentsmon"
+  chmod +x "$HOME/.local/bin/agentsmon"
+  case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc";; esac
+  export PATH="$HOME/.local/bin:$PATH"
+  RUN=("$HOME/.local/bin/agentsmon"); HOW="agentsmon"
+fi
 
-say "Run it later with:  $HOW status"
+say "Run it later with:  $HOW status   (add more bots anytime with:  $HOW add)"
 if [ -e /dev/tty ]; then say "Starting setup…"; exec "${RUN[@]}" setup </dev/tty
 else say "Installed. Finish setup with:  $HOW setup"; fi

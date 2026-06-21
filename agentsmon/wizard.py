@@ -37,7 +37,7 @@ AGENT_TYPES = [
      "restart": "codex --dangerously-bypass-approvals-and-sandbox"},
     {"kind": "antigravity", "label": "Antigravity", "bin": "agy",
      "launch": "agy --dangerously-skip-permissions",
-     "restart": "agy --dangerously-skip-permissions"},
+     "restart": "agy --continue --dangerously-skip-permissions"},
     {"kind": "aider", "label": "Aider", "bin": "aider", "launch": "aider", "restart": "aider"},
     {"kind": "gemini", "label": "Gemini", "bin": "gemini", "launch": "gemini", "restart": "gemini"},
 ]

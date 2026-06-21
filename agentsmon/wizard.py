@@ -206,6 +206,11 @@ def _daemon_entries(d: dict) -> tuple:
         pinned["health_url"] = d["health_url"]
     if d.get("name_color"):
         pinned["name_color"] = d["name_color"]
+    # OpenClaw has its own native Telegram bot — auto-fill its @username so the dashboard shows a
+    # t.me link (other daemons can set a `telegram` field in config explicitly).
+    tg = d.get("telegram") or (detect._openclaw_telegram_bot() if d.get("name") == "OpenClaw" else "")
+    if tg:
+        pinned["telegram"] = tg
     model = detect.daemon_model(d["name"])
     if model:
         pinned["tag"] = model

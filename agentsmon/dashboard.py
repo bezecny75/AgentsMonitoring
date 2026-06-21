@@ -270,6 +270,16 @@ def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
     return out
 
 
+def _tg_link(value: str) -> tuple[str, str]:
+    """Normalise a Telegram reference (``@bot``, ``bot``, or a full ``https://t.me/bot`` URL) into
+    (url, username)."""
+    v = (value or "").strip()
+    if v.startswith("http"):
+        return v, v.rstrip("/").split("/")[-1].lstrip("@")
+    uname = v.lstrip("@")
+    return f"https://t.me/{uname}", uname
+
+
 def _agents_state(cfg: dict) -> list[dict]:
     """Pinned daemons (OpenClaw/Hermes…) first, then running tmux agents, with config display
     overrides (tag → label, vendor → tag colour) applied."""
@@ -284,14 +294,20 @@ def _agents_state(cfg: dict) -> list[dict]:
         if ov.get("restart"):
             a["resume_cmd"] = ov["restart"]
     agents = detect.pinned_agents(cfg.get("pinned_daemons", [])) + tmux
-    # Soft integration: if an agent's tmux session is bridged to Telegram (via Agent2Telegram),
-    # attach a t.me/<bot> deep link so the dashboard can show a Telegram icon. Token never read.
+    # Telegram deep-link icon. Two sources, explicit wins:
+    #  1) an explicit `telegram` field on an agent/daemon config entry (for daemons with their OWN
+    #     native bot, e.g. OpenClaw/Hermes) — value is a @username or a full t.me URL;
+    #  2) auto: a tmux session bridged via Agent2Telegram (reads only the non-secret bot username).
+    explicit = {d["name"]: d["telegram"] for d in
+                (cfg.get("pinned_daemons", []) + cfg.get("agents", []))
+                if d.get("name") and d.get("telegram")}
     links = detect.telegram_links()
     for a in agents:
-        bot = links.get(a.get("name"))
+        bot = explicit.get(a.get("name")) or links.get(a.get("name"))
         if bot:
-            a["telegram_bot"] = bot
-            a["telegram_url"] = f"https://t.me/{bot}"
+            url, uname = _tg_link(bot)
+            a["telegram_bot"] = uname
+            a["telegram_url"] = url
     return agents
 
 

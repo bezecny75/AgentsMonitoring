@@ -379,6 +379,22 @@ def discover_agents(extra_matches: list[tuple] | None = None, now: float | None 
     return agents
 
 
+def _openclaw_telegram_bot() -> str:
+    """OpenClaw's OWN Telegram bot @username (it doesn't use Agent2Telegram), resolved from its
+    config's botToken via getMe. Best-effort, called once at setup — not per render. '' if absent."""
+    try:
+        d = json.loads((Path.home() / ".openclaw" / "openclaw.json").read_text("utf-8"))
+        accounts = (((d.get("channels") or {}).get("telegram") or {}).get("accounts") or {})
+        tok = next((a["botToken"] for a in accounts.values()
+                    if isinstance(a, dict) and a.get("botToken")), "")
+        if not tok:
+            return ""
+        with urllib.request.urlopen(f"https://api.telegram.org/bot{tok}/getMe", timeout=6) as r:
+            return json.loads(r.read()).get("result", {}).get("username", "") or ""
+    except Exception:
+        return ""
+
+
 def telegram_links() -> dict[str, str]:
     """Map tmux-session name → bot @username for any agent connected to Telegram via Agent2Telegram.
 

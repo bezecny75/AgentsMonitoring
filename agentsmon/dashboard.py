@@ -57,7 +57,7 @@ PAGE = r"""<!DOCTYPE html><html lang="en"><head>
         <tr class="text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
           <th class="text-left font-medium px-3 py-2">Agent</th>
           <th class="text-left font-medium px-3 py-2">Model</th>
-          <th class="text-left font-medium px-3 py-2">Session ID</th>
+          <th class="text-left font-medium px-3 py-2">Session ID / Port</th>
           <th class="text-left font-medium px-3 py-2">Started</th>
           <th class="text-left font-medium px-3 py-2">Status</th>
         </tr></thead>
@@ -187,8 +187,15 @@ function renderAgents(root, agents){
     const tcls=VENDOR[a.vendor]||"bg-slate-100 text-slate-600";
     const copy=a.resume_cmd||a.session_id||"";
     const tip=copy?`${copy} (click to copy)`:"no resume";
-    const sid=a.session_id?`<span class="sid font-mono text-xs text-slate-600 whitespace-nowrap cursor-pointer hover:text-sky-600" title="${esc(tip)}" data-copy="${esc(copy)}">${esc(a.session_id)}</span>`
-      :`<span class="text-xs text-slate-300 cursor-help" title="${esc(tip)}">— none</span>`;
+    let sid;
+    if(a.session_id){
+      sid=`<span class="sid font-mono text-xs text-slate-600 whitespace-nowrap cursor-pointer hover:text-sky-600" title="${esc(tip)}" data-copy="${esc(copy)}">${esc(a.session_id)}</span>`;
+    }else if(a.kind==="daemon" && a.port){
+      // Daemons (gateways) have no session id — show the port they actually listen on instead.
+      sid=`<span class="font-mono text-xs text-slate-500 whitespace-nowrap" title="gateway port">:${a.port}</span>`;
+    }else{
+      sid=`<span class="text-xs text-slate-300 cursor-help" title="${esc(tip)}">— none</span>`;
+    }
     const ok=a.alive; const dot=ok?"bg-emerald-500":"bg-slate-300";
     // A daemon with a health endpoint shows its latency in place of Running/Idle.
     const statusTxt=(a.latency_ms!=null&&ok)?fmtLat(a.latency_ms):(ok?"Running":"Idle");

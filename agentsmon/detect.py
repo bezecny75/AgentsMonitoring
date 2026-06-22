@@ -73,6 +73,24 @@ def _proc_age(pid: int) -> int | None:
         return None
 
 
+def _listening_port(pids: list[int], health_url: str | None = None) -> int | None:
+    """The TCP port a daemon is actually LISTENing on (its gateway port) — via lsof, so it reflects
+    reality and reveals port conflicts/moves. Falls back to the port in health_url if lsof can't."""
+    for pid in pids:
+        r = _run(["lsof", "-nP", "-p", str(pid), "-iTCP", "-sTCP:LISTEN", "-Fn"])
+        if not r or r.returncode != 0:
+            continue
+        for line in r.stdout.splitlines():
+            m = re.search(r":(\d+)$", line.strip())   # -Fn name lines like 'n127.0.0.1:18789'
+            if m:
+                return int(m.group(1))
+    if health_url:
+        m = re.search(r":(\d+)", health_url)
+        if m:
+            return int(m.group(1))
+    return None
+
+
 def pinned_agents(pinned: list[dict]) -> list[dict]:
     """Non-tmux processes (OpenClaw, Hermes, …) shown at the top of the agents table. If a daemon
     has a ``health_url`` we measure its warm round-trip latency, shown in place of the status."""
@@ -98,6 +116,7 @@ def pinned_agents(pinned: list[dict]) -> list[dict]:
             "name_color": d.get("name_color"),
             "session_id": None, "alive": bool(pids), "age": age, "latency_ms": lat,
             "health_url": d.get("health_url"),
+            "port": _listening_port(pids, d.get("health_url")) if pids else None,
         })
     return out
 

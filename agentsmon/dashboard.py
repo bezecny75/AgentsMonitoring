@@ -41,8 +41,9 @@ PAGE = r"""<!DOCTYPE html><html lang="en"><head>
 <title>Agents Monitoring</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
 <script src="https://cdn.tailwindcss.com"></script>
-<style>.bar{transition:opacity .15s ease}.bar:hover{opacity:.65}</style>
+<style>.bar{transition:opacity .15s ease}.bar:hover{opacity:.65}.copied-flash{color:#059669!important;transition:color .1s}#toast{transition:opacity .2s ease}</style>
 </head><body class="bg-slate-50 text-slate-800 antialiased">
+<div id="toast" class="fixed left-1/2 bottom-5 -translate-x-1/2 bg-slate-800 text-white text-sm px-3 py-1.5 rounded-md shadow-lg opacity-0 pointer-events-none" style="z-index:50">&nbsp;</div>
 <div class="max-w-3xl mx-auto px-5 py-6">
 
   <section class="mb-6" data-svc="agents">
@@ -194,7 +195,11 @@ function renderAgents(root, agents){
     const stCls=ok?"text-slate-600":"text-slate-400";
     const tr=document.createElement("tr"); tr.className="border-b border-slate-100 last:border-0";
     const nameBg=NAME_BG[a.name_color];
-    const nameCell=nameBg?`<span class="inline-block rounded px-1.5 py-0.5 ${nameBg}">${esc(a.name)}</span>`:esc(a.name);
+    const nameInner=nameBg?`<span class="inline-block rounded px-1.5 py-0.5 ${nameBg}">${esc(a.name)}</span>`:esc(a.name);
+    // Clicking the agent name copies the tmux-attach command (like the session id). Feedback is a
+    // toast (not a text swap) so the column width never jumps.
+    const attachCmd=`tmux attach -t "${a.name}"`;
+    const nameCell=`<span class="agent-name cursor-pointer hover:text-sky-600" data-copy="${esc(attachCmd)}" title="${esc(attachCmd)} — klik = kopírovat">${nameInner}</span>`;
     // Telegram deep-link icon for agents bridged to a bot (opens t.me/<bot> in a new tab).
     const tg=a.telegram_url?` <a href="${esc(a.telegram_url)}" target="_blank" rel="noopener" title="Open @${esc(a.telegram_bot)} in Telegram" class="inline-flex align-middle ml-1 hover:opacity-70"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="#229ED9"><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.27 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg></a>`:"";
     tr.innerHTML=
@@ -227,12 +232,19 @@ function copyText(text){
   try{ document.execCommand("copy"); }catch(e){} document.body.removeChild(ta);
   return Promise.resolve();
 }
+let _toastTimer;
+function showToast(msg){
+  const t=document.getElementById("toast"); if(!t) return;
+  t.textContent=msg; t.style.opacity="1";
+  clearTimeout(_toastTimer); _toastTimer=setTimeout(()=>{ t.style.opacity="0"; }, 1300);
+}
 document.addEventListener("click", e=>{
   const el=e.target.closest("[data-copy]"); if(!el) return;
   copyText(el.dataset.copy).then(()=>{
-    const old=el.textContent; el.textContent="✓ copied";
-    el.classList.add("text-emerald-600");
-    setTimeout(()=>{ el.textContent=old; el.classList.remove("text-emerald-600"); }, 1000);
+    // Flash the element green + toast — no textContent swap, so column width never jumps.
+    el.classList.add("copied-flash");
+    setTimeout(()=>el.classList.remove("copied-flash"), 700);
+    showToast("✓ Zkopírováno do schránky");
   });
 });
 refresh(); setInterval(refresh, POLL*1000);

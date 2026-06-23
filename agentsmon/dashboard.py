@@ -47,7 +47,7 @@ PAGE = r"""<!DOCTYPE html><html lang="en"><head>
 <style>.bar{transition:opacity .15s ease}.bar:hover{opacity:.65}.copied-flash{color:#059669!important;transition:color .1s}#toast{transition:opacity .2s ease}</style>
 </head><body class="bg-slate-50 text-slate-800 antialiased">
 <div id="toast" class="fixed left-1/2 bottom-5 -translate-x-1/2 bg-slate-800 text-white text-sm px-3 py-1.5 rounded-md shadow-lg opacity-0 pointer-events-none" style="z-index:50">&nbsp;</div>
-<div class="max-w-3xl mx-auto px-5 py-6">
+<div class="max-w-6xl mx-auto px-5 py-6">
 
   <section class="mb-6" data-svc="agents">
     <div class="svc-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200">

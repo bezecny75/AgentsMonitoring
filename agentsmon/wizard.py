@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from . import config, detect, service
@@ -157,6 +158,44 @@ def _yes(prompt: str, default_yes: bool = True) -> bool:
 
 
 def _ask_secret(prompt: str) -> str:
+    # Show an asterisk per typed character (same UX as the wiki installer), so the user can see
+    # the password is being captured. Falls back to no-echo getpass when stdin isn't a real
+    # terminal (piped/headless) or raw mode isn't available.
+    if sys.stdin.isatty():
+        try:
+            import termios
+            import tty
+            sys.stdout.write(f"{prompt}: ")
+            sys.stdout.flush()
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            chars: list[str] = []
+            try:
+                tty.setraw(fd)
+                while True:
+                    ch = sys.stdin.read(1)
+                    if ch in ("\r", "\n", ""):
+                        break
+                    if ch == "\x03":                    # Ctrl-C
+                        raise KeyboardInterrupt
+                    if ch in ("\x7f", "\b"):            # backspace → erase one star
+                        if chars:
+                            chars.pop()
+                            sys.stdout.write("\b \b")
+                            sys.stdout.flush()
+                        continue
+                    chars.append(ch)
+                    sys.stdout.write("*")
+                    sys.stdout.flush()
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            return "".join(chars).strip()
+        except KeyboardInterrupt:
+            raise
+        except Exception:
+            pass
     import getpass
     try:
         return getpass.getpass(f"{prompt}: ").strip()

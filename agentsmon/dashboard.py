@@ -72,8 +72,37 @@ PAGE = r"""<!DOCTYPE html><html lang="en"><head>
   </section>
 
   <div id="services"></div>
+
+  <section class="mb-6" data-svc="security">
+    <div class="svc-head sec-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200">
+      <span class="svc-dot sec-dot h-3 w-3 rounded-full bg-slate-300 shrink-0"></span>
+      <h2 class="text-base font-semibold">Security Health</h2>
+      <span class="sec-state ml-auto text-sm font-medium text-slate-400">loading…</span>
+    </div>
+    <div class="rounded-lg border border-slate-200 bg-white p-4">
+      <div id="sec-body" class="space-y-3">
+        <p class="text-slate-400 text-sm">loading…</p>
+      </div>
+      <p class="sec-updated text-[11px] text-slate-400 mt-3"></p>
+    </div>
+  </section>
+
   <p class="text-center text-[11px] text-slate-300" id="footer">auto-refresh</p>
 </div>
+
+<template id="sec-group-tpl">
+  <div class="sec-group">
+    <p class="sec-group-label text-[11px] uppercase tracking-wide font-semibold mb-1.5"></p>
+    <div class="sec-group-items space-y-1.5"></div>
+  </div>
+</template>
+
+<template id="sec-item-tpl">
+  <div class="sec-item flex items-center gap-2 rounded-md border px-2.5 py-1.5">
+    <span class="sec-item-dot h-2 w-2 rounded-full shrink-0"></span>
+    <span class="sec-item-name text-sm font-medium flex-1"></span>
+  </div>
+</template>
 
 <template id="svc-tpl">
   <section class="mb-6">
@@ -232,6 +261,48 @@ function renderAgents(root, agents){
     tb.appendChild(tr);
   });
 }
+const SEV = {
+  red:    ["bg-rose-500",    "text-rose-600",    "bg-rose-50 border-rose-200",    "Issues found"],
+  yellow: ["bg-amber-500",   "text-amber-600",   "bg-amber-50 border-amber-200",  "Needs attention"],
+  green:  ["bg-emerald-500", "text-emerald-600", "bg-emerald-50 border-emerald-200", "OK"],
+};
+function renderSecurity(sec){
+  const head=document.querySelector(".sec-head"), dot=document.querySelector(".sec-dot"),
+        state=document.querySelector(".sec-state"), body=document.getElementById("sec-body"),
+        upd=document.querySelector(".sec-updated");
+  if(!sec || sec.state==="nodata"){
+    head.className="svc-head sec-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 bg-white border-slate-200";
+    dot.className="svc-dot sec-dot h-3 w-3 rounded-full shrink-0 bg-slate-300";
+    state.textContent="No data / not running"; state.className="sec-state ml-auto text-sm font-medium text-slate-400";
+    body.innerHTML=`<p class="text-slate-400 text-sm">No recent security-audit report found.</p>`;
+    upd.textContent=""; return;
+  }
+  const ov=SEV[sec.overall]||SEV.yellow;
+  head.className="svc-head sec-head flex items-center gap-2.5 mb-3 rounded-lg border px-3 py-2 "+ov[2];
+  dot.className="svc-dot sec-dot h-3 w-3 rounded-full shrink-0 "+ov[0];
+  state.textContent=ov[3]; state.className="sec-state ml-auto text-sm font-medium "+ov[1];
+  const gtpl=document.getElementById("sec-group-tpl"), itpl=document.getElementById("sec-item-tpl");
+  body.innerHTML="";
+  (sec.groups||[]).forEach(g=>{
+    const sv=SEV[g.severity]||SEV.yellow;
+    const gnode=gtpl.content.cloneNode(true);
+    const label=gnode.querySelector(".sec-group-label");
+    label.textContent=g.severity.toUpperCase()+" ("+g.items.length+")";
+    label.className="sec-group-label text-[11px] uppercase tracking-wide font-semibold mb-1.5 "+sv[1];
+    const itemsBox=gnode.querySelector(".sec-group-items");
+    g.items.forEach(it=>{
+      const inode=itpl.content.cloneNode(true);
+      const row=inode.querySelector(".sec-item");
+      row.className="sec-item flex items-center gap-2 rounded-md border px-2.5 py-1.5 "+sv[2];
+      row.title=it.note||"";
+      inode.querySelector(".sec-item-dot").className="sec-item-dot h-2 w-2 rounded-full shrink-0 "+sv[0];
+      inode.querySelector(".sec-item-name").textContent=it.name||"";
+      itemsBox.appendChild(inode);
+    });
+    body.appendChild(gnode);
+  });
+  upd.textContent=sec.updated?("last audit: "+sec.updated):"";
+}
 async function refresh(){
   try{
     const d=await (await fetch("/api/state",{credentials:"same-origin"})).json();
@@ -243,6 +314,7 @@ async function refresh(){
     const sections=box.querySelectorAll("section");
     d.services.forEach((s,i)=>{ const root=sections[i]; q(root,".svc-name").textContent=s.name; renderService(root,s); });
     document.getElementById("footer").textContent="updated "+new Date().toLocaleTimeString()+" · auto-refresh";
+    renderSecurity(d.security);
   }catch(e){document.getElementById("footer").textContent="connection lost…";}
 }
 function copyText(text){
@@ -316,6 +388,43 @@ def _service_state(cfg: dict, running_agents: int = 0) -> list[dict]:
             "timeline": db.timeline(name, tdays * 86400, tdays), "timeline_days": tdays,
         })
     return out
+
+
+SECURITY_STATUS_PATH = "/home/bezi/.hermes/security-audit/status.json"
+SECURITY_STALE_SECONDS = 6 * 3600   # cron writes status.json regularly; >6h old means it stopped
+
+
+def _security_state() -> dict:
+    """Read the periodic security-audit report and group its areas by severity (red first, then
+    yellow, then green) for the dashboard card. Returns state="nodata" if the file is missing,
+    unreadable, or stale (cron job stopped running)."""
+    try:
+        raw = json.loads(open(SECURITY_STATUS_PATH, "r", encoding="utf-8").read())
+    except (OSError, ValueError):
+        return {"state": "nodata", "groups": [], "updated": None}
+    areas = raw.get("areas") or []
+    order = {"red": 0, "yellow": 1, "green": 2}
+    areas_sorted = sorted(areas, key=lambda a: order.get(a.get("status"), 1))
+    groups: list[dict] = []
+    for sev in ("red", "yellow", "green"):
+        items = [a for a in areas_sorted if a.get("status") == sev]
+        if items:
+            groups.append({"severity": sev, "items": items})
+    overall = raw.get("overall") or ("red" if any(a.get("status") == "red" for a in areas) else "yellow")
+    updated_ts = None
+    try:
+        from datetime import datetime, timezone
+        updated_ts = datetime.strptime(raw["updated"], "%Y-%m-%d %H:%M %Z").replace(
+            tzinfo=timezone.utc).timestamp()
+    except (KeyError, ValueError):
+        pass
+    stale = updated_ts is None or (time.time() - updated_ts) > SECURITY_STALE_SECONDS
+    return {
+        "state": "nodata" if stale else "ok",
+        "overall": overall,
+        "updated": raw.get("updated"),
+        "groups": groups,
+    }
 
 
 def _tg_link(value: str) -> tuple[str, str]:
@@ -426,7 +535,8 @@ def _state() -> bytes:
     for s in services:
         s["system_latency_ms"] = sysavg
         s["system_latency_n"] = len(lat_by_url)
-    data = {"time": int(time.time()), "agents": agents, "services": services}
+    data = {"time": int(time.time()), "agents": agents, "services": services,
+            "security": _security_state()}
     return json.dumps(data).encode()
 
 

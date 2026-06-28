@@ -11,13 +11,13 @@ import sqlite3
 import time
 
 from . import config
-
+from contextlib import contextmanager
 
 def _path() -> str:
     return str(config.state_dir() / "uptime.sqlite")
 
-
-def _conn() -> sqlite3.Connection:
+@contextmanager
+def _conn():
     c = sqlite3.connect(_path(), timeout=10)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
@@ -26,7 +26,14 @@ def _conn() -> sqlite3.Connection:
         ts INTEGER NOT NULL, service TEXT NOT NULL, up INTEGER NOT NULL,
         latency REAL, detail TEXT)""")
     c.execute("CREATE INDEX IF NOT EXISTS idx_probes_service_ts ON probes(service, ts)")
-    return c
+    try:
+        yield c
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
+    finally:
+        c.close()
 
 
 def record(service: str, up: bool, latency: float | None = None, detail: str = "",
